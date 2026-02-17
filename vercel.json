@@ -21,7 +21,7 @@
     }
   ],
   "env": {
-    "MONGODB_URI": "@mongodb_uri",
-    "API_KEY": "@api_key"
+    "MONGODB_URII": "@mongodb_uri",
+    "API_KEYY": "@api_key"
   }
 }
