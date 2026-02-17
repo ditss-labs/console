@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bot WhatsApp Console</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #0a0c0f;
+            --bg-secondary: #1a1d21;
+            --text-primary: #e4e6eb;
+            --text-secondary: #b0b3b8;
+            --accent: #00a884;
+            --border: #2f3336;
+            --error: #f44336;
+            --success: #4caf50;
+            --warning: #ff9800;
+            --info: #2196f3;
+        }
+
+        body {
+            font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .container {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header Styles */
+        .header {
+            background: var(--bg-secondary);
+            padding: 1rem 1.5rem;
+            border-bottom: 2px solid var(--accent);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-left h1 {
+            font-size: 1.3rem;
+            color: var(--accent);
+            margin-bottom: 0.3rem;
+        }
+
+        .header-left .subtitle {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .status-container {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--bg-primary);
+            padding: 0.5rem 1rem;
+            border-radius: 2rem;
+            border: 1px solid var(--border);
+        }
+
+        .status-dot {
+            width: 0.8rem;
+            height: 0.8rem;
+            border-radius: 50%;
+            background: var(--success);
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.disconnected {
+            background: var(--error);
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 var(--success); }
+            70% { box-shadow: 0 0 0 10px transparent; }
+        }
+
+        .stats-badge {
+            background: var(--bg-primary);
+            padding: 0.5rem 1rem;
+            border-radius: 2rem;
+            border: 1px solid var(--border);
+            font-size: 0.9rem;
+        }
+
+        /* Console Styles */
+        .console {
+            flex: 1;
+            padding: 1rem;
+            overflow-y: auto;
+            font-size: 0.9rem;
+            background: var(--bg-primary);
+        }
+
+        .log-entry {
+            margin: 0.5rem 0;
+            padding: 1rem;
+            background: var(--bg-secondary);
+            border-radius: 0.5rem;
+            border-left: 4px solid;
+            animation: slideIn 0.2s ease;
+            font-family: 'Consolas', monospace;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .log-command { border-left-color: var(--accent); }
+        .log-message { border-left-color: var(--info); }
+        .log-error { border-left-color: var(--error); }
+        .log-system { border-left-color: var(--warning); }
+
+        .log-header {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 0.8rem;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .log-badge {
+            padding: 0.2rem 0.6rem;
+            border-radius: 0.3rem;
+            font-weight: bold;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+        }
+
+        .badge-command { 
+            background: rgba(0, 168, 132, 0.2); 
+            color: var(--accent); 
+        }
+        .badge-message { 
+            background: rgba(33, 150, 243, 0.2); 
+            color: var(--info); 
+        }
+        .badge-error { 
+            background: rgba(244, 67, 54, 0.2); 
+            color: var(--error); 
+        }
+        .badge-system { 
+            background: rgba(255, 152, 0, 0.2); 
+            color: var(--warning); 
+        }
+
+        .log-timestamp {
+            color: var(--text-secondary);
+        }
+
+        .log-user {
+            color: var(--text-secondary);
+        }
+
+        .log-content {
+            color: var(--text-primary);
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .console-line {
+            margin: 0.2rem 0;
+            padding: 0.1rem 0;
+        }
+
+        /* Text Colors */
+        .text-cyan { color: #00bcd4; }
+        .text-green { color: var(--accent); }
+        .text-gray { color: var(--text-secondary); }
+        .text-yellow { color: var(--warning); }
+        .text-magenta { color: #ff4081; }
+        .text-red { color: var(--error); }
+
+        .mt-2 { margin-top: 0.5rem; }
+        .mb-2 { margin-bottom: 0.5rem; }
+        .ml-2 { margin-left: 0.5rem; }
+
+        /* Footer Styles */
+        .footer {
+            background: var(--bg-secondary);
+            padding: 0.8rem 1.5rem;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        .footer-left {
+            display: flex;
+            gap: 1.5rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .footer-right {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .filter-group {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .filter-select, .filter-input {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            padding: 0.3rem 0.8rem;
+            border-radius: 0.3rem;
+            font-family: inherit;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+
+        .filter-input {
+            width: 150px;
+            cursor: text;
+        }
+
+        .filter-select:hover, .filter-input:hover {
+            border-color: var(--accent);
+        }
+
+        .filter-select:focus, .filter-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .btn {
+            background: none;
+            border: 1px solid;
+            padding: 0.3rem 1rem;
+            border-radius: 0.3rem;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+
+        .btn-clear {
+            border-color: var(--error);
+            color: var(--error);
+        }
+
+        .btn-clear:hover {
+            background: rgba(244, 67, 54, 0.2);
+        }
+
+        .btn-refresh {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .btn-refresh:hover {
+            background: rgba(0, 168, 132, 0.2);
+        }
+
+        .btn-primary {
+            border-color: var(--info);
+            color: var(--info);
+        }
+
+        .btn-primary:hover {
+            background: rgba(33, 150, 243, 0.2);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-secondary);
+        }
+
+        .error {
+            color: var(--error);
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .pagination {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .page-info {
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-left">
+                <h1>🤖 WhatsApp Bot Console</h1>
+                <div class="subtitle">Express + MongoDB • Realtime Monitor</div>
+            </div>
+            <div class="status-container">
+                <div class="status-badge">
+                    <span class="status-dot" id="statusDot"></span>
+                    <span id="statusText">Connected</span>
+                </div>
+                <div class="stats-badge" id="statsBadge">
+                    📊 Logs: <span id="totalLogs">0</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Console Output -->
+        <div class="console" id="console">
+            <div class="loading">Loading logs...</div>
+        </div>
+
+        <!-- Footer with Controls -->
+        <div class="footer">
+            <div class="footer-left">
+                <div class="filter-group">
+                    <select class="filter-select" id="filterType" onchange="applyFilters()">
+                        <option value="all">📋 All Types</option>
+                        <option value="command">⚡ Command</option>
+                        <option value="message">💬 Message</option>
+                        <option value="error">❌ Error</option>
+                        <option value="system">⚙️ System</option>
+                    </select>
+                    
+                    <select class="filter-select" id="filterBot" onchange="applyFilters()">
+                        <option value="all">🤖 All Bots</option>
+                    </select>
+                    
+                    <input type="text" class="filter-input" id="searchInput" 
+                           placeholder="🔍 Search..." onkeyup="if(event.key==='Enter') applyFilters()">
+                </div>
+                
+                <div class="pagination">
+                    <button class="btn btn-primary" onclick="prevPage()" id="prevBtn">←</button>
+                    <span class="page-info" id="pageInfo">Page 1</span>
+                    <button class="btn btn-primary" onclick="nextPage()" id="nextBtn">→</button>
+                </div>
+            </div>
+            
+            <div class="footer-right">
+                <span id="lastUpdate">Last update: -</span>
+                <button class="btn btn-refresh" onclick="refreshLogs()">↻ Refresh</button>
+                <button class="btn btn-clear" onclick="clearConsole()">🗑️ Clear</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let logs = [];
+        let filteredLogs = [];
+        let lastId = null;
+        let polling = true;
+        let currentPage = 1;
+        let totalPages = 1;
+        let totalLogs = 0;
+        let botNames = [];
+        let filters = {
+            type: 'all',
+            bot: 'all',
+            search: ''
+        };
+
+        // DOM Elements
+        const consoleDiv = document.getElementById('console');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const totalLogsSpan = document.getElementById('totalLogs');
+        const lastUpdateSpan = document.getElementById('lastUpdate');
+        const filterType = document.getElementById('filterType');
+        const filterBot = document.getElementById('filterBot');
+        const searchInput = document.getElementById('searchInput');
+        const pageInfo = document.getElementById('pageInfo');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+
+        // ==================== UTILITY FUNCTIONS ====================
+        function formatTime(isoString) {
+            const date = new Date(isoString);
+            return date.toLocaleTimeString('id-ID', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+
+        function formatDate(isoString) {
+            const date = new Date(isoString);
+            return date.toLocaleDateString('id-ID', {
+                day: '2-digit',
+                month: '2-digit',
+                year: '2-digit'
+            });
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // ==================== RENDERING ====================
+        function createLogEntry(log) {
+            const time = formatTime(log.createdAt);
+            const date = formatDate(log.createdAt);
+            const type = log.type || 'system';
+            const nomor = log.userInfo?.nomor || 'System';
+            const pushname = log.userInfo?.pushname || '';
+            
+            let content = '';
+            
+            // Render console lines if available
+            if (log.consoleLines && Array.isArray(log.consoleLines)) {
+                log.consoleLines.forEach(line => {
+                    // Simple color detection based on content
+                    let lineClass = '';
+                    if (line.includes('Command') || line.includes('Perintah:')) lineClass = 'text-green';
+                    else if (line.includes('Size:')) lineClass = 'text-magenta';
+                    else if (line.includes('Argumen:')) lineClass = 'text-gray';
+                    else if (line.includes('Error:')) lineClass = 'text-red';
+                    else if (line.includes('Device:')) lineClass = 'text-cyan';
+                    
+                    content += `<div class="console-line ${lineClass}">${escapeHtml(line)}</div>`;
+                });
+            } else {
+                // Fallback to message body
+                content = `<div class="console-line">${escapeHtml(log.messageInfo?.body || 'No content')}</div>`;
+            }
+            
+            // Add command info if available
+            if (log.messageInfo?.command) {
+                content += `<div class="console-line text-cyan mt-2">⚙️ Perintah: ${escapeHtml(log.messageInfo.command)}</div>`;
+            }
+            if (log.messageInfo?.args && log.messageInfo.args.length > 0) {
+                content += `<div class="console-line text-gray">📎 Argumen: ${escapeHtml(log.messageInfo.args.join(' '))}</div>`;
+            }
+            
+            return `
+                <div class="log-entry log-${type}">
+                    <div class="log-header">
+                        <span class="log-timestamp">${date} ${time}</span>
+                        <span class="log-badge badge-${type}">${type.toUpperCase()}</span>
+                        <span class="log-user">${escapeHtml(nomor)} ${pushname ? '~ ' + escapeHtml(pushname) : ''}</span>
+                        ${log.botName ? `<span class="log-user">🤖 ${escapeHtml(log.botName)}</span>` : ''}
+                    </div>
+                    <div class="log-content">
+                        ${content}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderLogs() {
+            if (filteredLogs.length === 0) {
+                consoleDiv.innerHTML = '<div class="loading">No logs to display</div>';
+                return;
+            }
+            
+            let html = '';
+            filteredLogs.forEach(log => {
+                html += createLogEntry(log);
+            });
+            
+            consoleDiv.innerHTML = html;
+            totalLogsSpan.textContent = totalLogs;
+            
+            // Auto-scroll if at bottom
+            const isAtBottom = consoleDiv.scrollHeight - consoleDiv.clientHeight <= consoleDiv.scrollTop + 100;
+            if (isAtBottom) {
+                consoleDiv.scrollTop = consoleDiv.scrollHeight;
+            }
+        }
+
+        // ==================== API CALLS ====================
+        async function loadLogs(page = 1) {
+            try {
+                consoleDiv.innerHTML = '<div class="loading">Loading logs...</div>';
+                
+                // Build query string
+                const params = new URLSearchParams({
+                    page: page,
+                    limit: 50
+                });
+                
+                if (filters.type !== 'all') params.append('type', filters.type);
+                if (filters.bot !== 'all') params.append('bot', filters.bot);
+                if (filters.search) params.append('search', filters.search);
+                
+                const response = await fetch(`/api/logs?${params}`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    logs = result.data;
+                    filteredLogs = logs;
+                    totalLogs = result.pagination.total;
+                    totalPages = result.pagination.pages;
+                    currentPage = result.pagination.page;
+                    
+                    // Update bot filter options
+                    if (result.filters?.botNames) {
+                        botNames = result.filters.botNames;
+                        updateBotFilter();
+                    }
+                    
+                    updatePagination();
+                    renderLogs();
+                    
+                    // Set lastId for polling
+                    if (logs.length > 0) {
+                        lastId = logs[logs.length - 1].id;
+                    }
+                }
+            } catch (error) {
+                consoleDiv.innerHTML = `<div class="error">Error loading logs: ${error.message}</div>`;
+            }
+        }
+
+        async function pollNewLogs() {
+            while (polling) {
+                try {
+                    const params = new URLSearchParams({
+                        timeout: 30000
+                    });
+                    
+                    if (lastId) params.append('lastId', lastId);
+                    if (filters.type !== 'all') params.append('type', filters.type);
+                    
+                    const response = await fetch(`/api/poll?${params}`);
+                    const result = await response.json();
+                    
+                    if (result.success && result.data.length > 0) {
+                        // Add new logs
+                        logs = [...logs, ...result.data];
+                        
+                        // Apply current filters
+                        applyFiltersToLogs();
+                        
+                        lastId = result.data[result.data.length - 1].id;
+                        totalLogs += result.data.length;
+                        
+                        renderLogs();
+                        
+                        // Update status
+                        statusDot.className = 'status-dot';
+                        statusText.textContent = 'Connected';
+                        lastUpdateSpan.textContent = `Last update: ${formatTime(new Date().toISOString())}`;
+                    }
+                } catch (error) {
+                    console.error('Polling error:', error);
+                    statusDot.className = 'status-dot disconnected';
+                    statusText.textContent = 'Disconnected';
+                    
+                    // Wait before retry
+                    await new Promise(resolve => setTimeout(resolve, 5000));
+                }
+            }
+        }
+
+        async function getStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Update stats display
+                    document.getElementById('totalLogs').textContent = result.data.total;
+                }
+            } catch (error) {
+                console.error('Error fetching stats:', error);
+            }
+        }
+
+        // ==================== FILTERS ====================
+        function updateBotFilter() {
+            let options = '<option value="all">🤖 All Bots</option>';
+            botNames.forEach(bot => {
+                if (bot) {
+                    options += `<option value="${bot}">🤖 ${bot}</option>`;
+                }
+            });
+            filterBot.innerHTML = options;
+        }
+
+        function applyFilters() {
+            filters.type = filterType.value;
+            filters.bot = filterBot.value;
+            filters.search = searchInput.value;
+            
+            currentPage = 1;
+            loadLogs(1);
+        }
+
+        function applyFiltersToLogs() {
+            filteredLogs = logs.filter(log => {
+                if (filters.type !== 'all' && log.type !== filters.type) return false;
+                if (filters.bot !== 'all' && log.botName !== filters.bot) return false;
+                if (filters.search) {
+                    const searchLower = filters.search.toLowerCase();
+                    return (
+                        log.messageInfo?.body?.toLowerCase().includes(searchLower) ||
+                        log.messageInfo?.command?.toLowerCase().includes(searchLower) ||
+                        log.userInfo?.pushname?.toLowerCase().includes(searchLower) ||
+                        log.userInfo?.nomor?.includes(searchLower)
+                    );
+                }
+                return true;
+            });
+        }
+
+        // ==================== PAGINATION ====================
+        function updatePagination() {
+            pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+            prevBtn.disabled = currentPage === 1;
+            nextBtn.disabled = currentPage === totalPages;
+        }
+
+        function prevPage() {
+            if (currentPage > 1) {
+                loadLogs(currentPage - 1);
+            }
+        }
+
+        function nextPage() {
+            if (currentPage < totalPages) {
+                loadLogs(currentPage + 1);
+            }
+        }
+
+        // ==================== ACTIONS ====================
+        function refreshLogs() {
+            loadLogs(currentPage);
+        }
+
+        async function clearConsole() {
+            if (!confirm('Are you sure you want to clear all logs?')) return;
+            
+            try {
+                const response = await fetch('/api/logs', {
+                    method: 'DELETE',
+                    headers: {
+                        'X-API-Key': prompt('Enter API Key:') // Simple auth
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    logs = [];
+                    filteredLogs = [];
+                    totalLogs = 0;
+                    lastId = null;
+                    renderLogs();
+                } else {
+                    alert('Failed to clear logs: ' + result.error);
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        // ==================== INITIALIZATION ====================
+        async function init() {
+            await loadLogs(1);
+            await getStats();
+            pollNewLogs();
+            
+            // Update stats every 30 seconds
+            setInterval(getStats, 30000);
+            
+            // Update last update time
+            setInterval(() => {
+                lastUpdateSpan.textContent = `Last update: ${formatTime(new Date().toISOString())}`;
+            }, 1000);
+        }
+
+        // Start
+        init();
+    </script>
+</body>
+</html>
