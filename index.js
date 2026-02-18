@@ -1,54 +1,49 @@
-// index.js - Fix untuk error polling
-
 const express = require('express');
 const cors = require('cors');
-const helmet = require('helmet');
-const compression = require('compression');
-const path = require('path');
-require('dotenv').config();
+const { MongoClient } = require('mongodb');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(helmet({ contentSecurityPolicy: false }));
-app.use(compression());
+// Middleware dasar
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static('public'));
 
-// ========== MONGODB CONNECTION FIX ==========
-const { MongoClient } = require('mongodb');
-const uri = process.env.MONGODB_URI;
+// ========== MONGODB CONNECTION ==========
+const MONGODB_URI = process.env.MONGODB_URI;
+const API_KEY = process.env.APIKEY || 'ampun-dije';
 
-if (!uri) {
-    console.error('❌ MONGODB_URI not found in environment variables');
-    process.exit(1);
+console.log('🚀 Starting server...');
+console.log('MONGODB_URI exists:', !!MONGODB_URI);
+console.log('API_KEY exists:', !!API_KEY);
+
+if (!MONGODB_URI) {
+    console.error('❌ MONGODB_URI not set!');
 }
-
-const client = new MongoClient(uri, {
-    maxPoolSize: 10,
-    serverSelectionTimeoutMS: 5000,
-    socketTimeoutMS: 45000,
-});
 
 let db = null;
 let logsCollection = null;
 
-// Fungsi untuk connect ke MongoDB
-async function connectToMongoDB() {
+// Connect to MongoDB
+async function connectDB() {
     try {
+        console.log('Connecting to MongoDB...');
+        const client = new MongoClient(MONGODB_URI);
         await client.connect();
-        console.log('✅ Connected to MongoDB');
+        console.log('✅ MongoDB connected');
         
-        db = client.db('bot_wa'); // Ganti 'bot_wa' sesuai database lo
+        db = client.db('bot_wa');
         logsCollection = db.collection('console_logs');
         
-        // Create indexes
-        await logsCollection.createIndex({ createdAt: -1 });
-        await logsCollection.createIndex({ type: 1 });
+        // Test insert
+        await logsCollection.insertOne({
+            type: 'system',
+            message: 'Server started',
+            createdAt: new Date()
+        });
+        console.log('✅ Test insert successful');
         
-        console.log('✅ Database and collection ready');
         return true;
     } catch (error) {
         console.error('❌ MongoDB connection error:', error);
@@ -56,159 +51,142 @@ async function connectToMongoDB() {
     }
 }
 
-// ========== MIDDLEWARE CEK DATABASE ==========
-// Middleware untuk memastikan database sudah terkoneksi
-function ensureDbConnected(req, res, next) {
-    if (!logsCollection) {
-        return res.status(503).json({ 
+// ========== MIDDLEWARE CEK API KEY ==========
+function checkApiKey(req, res, next) {
+    const apiKey = req.headers['x-api-key'];
+    if (!apiKey || apiKey !== API_KEY) {
+        console.log('❌ Unauthorized attempt:', apiKey);
+        return res.status(401).json({ 
             success: false, 
-            error: 'Database not ready',
-            message: 'MongoDB connection in progress, please try again'
+            error: 'Unauthorized - Invalid API Key' 
         });
     }
     next();
 }
 
-// ========== API ROUTES ==========
+// ========== ENDPOINTS ==========
 
-// Test endpoint
+// 1. ROOT ENDPOINT - buat test
+app.get('/', (req, res) => {
+    res.sendFile(__dirname + '/public/index.html');
+});
+
+// 2. HEALTH CHECK - buat test koneksi
 app.get('/api/health', (req, res) => {
     res.json({
         status: 'ok',
+        time: new Date().toISOString(),
         dbConnected: !!logsCollection,
-        timestamp: new Date().toISOString()
+        mongodb_uri_set: !!MONGODB_URI,
+        api_key_set: !!API_KEY
     });
 });
 
-// POST /api/console - Terima log dari bot
-app.post('/api/console', async (req, res) => {
-    // Cek API Key
-    const apiKey = req.headers['x-api-key'];
-    if (!apiKey || apiKey !== process.env.APIKEY) {
-        return res.status(401).json({ success: false, error: 'Unauthorized' });
-    }
-    
-    // Cek koneksi DB
-    if (!logsCollection) {
-        return res.status(503).json({ success: false, error: 'Database not ready' });
-    }
-    
+// 3. TEST ENDPOINT - tanpa auth
+app.get('/api/test', (req, res) => {
+    res.json({ 
+        success: true, 
+        message: 'API is working!',
+        time: new Date().toISOString()
+    });
+});
+
+// 4. ENDPOUT CONSOLE - terima log dari bot (PAKAI AUTH)
+app.post('/api/console', checkApiKey, async (req, res) => {
     try {
-        const logData = req.body;
+        // Cek database
+        if (!logsCollection) {
+            return res.status(503).json({ 
+                success: false, 
+                error: 'Database not ready' 
+            });
+        }
         
-        // Tambah metadata
-        const logEntry = {
+        const logData = req.body;
+        console.log('📥 Received log:', logData.type);
+        
+        // Insert ke database
+        const result = await logsCollection.insertOne({
             ...logData,
-            _id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            _id: `${Date.now()}-${Math.random().toString(36)}`,
             createdAt: new Date(),
             receivedAt: new Date().toISOString()
-        };
+        });
         
-        // Simpan ke MongoDB
-        await logsCollection.insertOne(logEntry);
+        res.json({ 
+            success: true, 
+            id: result.insertedId,
+            message: 'Log saved'
+        });
         
-        res.json({ success: true, id: logEntry._id });
     } catch (error) {
         console.error('Error saving log:', error);
-        res.status(500).json({ success: false, error: error.message });
+        res.status(500).json({ 
+            success: false, 
+            error: error.message 
+        });
     }
 });
 
-// GET /api/logs - Ambil logs
-app.get('/api/logs', ensureDbConnected, async (req, res) => {
+// 5. ENDPOINT GET LOGS
+app.get('/api/logs', async (req, res) => {
     try {
-        const limit = Math.min(parseInt(req.query.limit) || 100, 500);
-        const page = parseInt(req.query.page) || 1;
-        const skip = (page - 1) * limit;
+        if (!logsCollection) {
+            return res.status(503).json({ 
+                success: false, 
+                error: 'Database not ready' 
+            });
+        }
         
-        // Ambil logs
+        const limit = parseInt(req.query.limit) || 100;
         const logs = await logsCollection
             .find({})
             .sort({ createdAt: -1 })
-            .skip(skip)
             .limit(limit)
             .toArray();
-        
-        // Hitung total
-        const total = await logsCollection.countDocuments({});
         
         res.json({
             success: true,
             data: logs.reverse(),
-            pagination: {
-                page,
-                limit,
-                total,
-                pages: Math.ceil(total / limit)
-            }
+            total: logs.length
         });
+        
     } catch (error) {
         console.error('Error fetching logs:', error);
-        res.status(500).json({ success: false, error: error.message });
+        res.status(500).json({ 
+            success: false, 
+            error: error.message 
+        });
     }
 });
 
-// GET /api/poll - FIXED VERSION (ini yang error tadi)
+// 6. ENDPOINT POLLING SEDERHANA
 app.get('/api/poll', async (req, res) => {
-    // Set headers untuk long polling
-    res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    
-    const lastId = req.query.lastId;
-    const timeout = parseInt(req.query.timeout) || 30000;
-    
-    // CEK PENTING: Kalo db belum siap, return error
-    if (!logsCollection) {
-        return res.status(503).json({ 
-            success: false, 
-            error: 'Database not ready',
-            data: [] 
-        });
-    }
-    
     try {
-        const startTime = Date.now();
-        const pollInterval = 2000;
+        if (!logsCollection) {
+            return res.status(503).json({ 
+                success: false, 
+                error: 'Database not ready' 
+            });
+        }
         
-        // Build query
+        const lastId = req.query.lastId;
+        
         let query = {};
         if (lastId) {
             query._id = { $gt: lastId };
         }
         
-        while (Date.now() - startTime < timeout) {
-            // CEK ULANG: Pastikan logsCollection masih ada
-            if (!logsCollection) {
-                throw new Error('Database connection lost');
-            }
-            
-            // Cari logs baru
-            const newLogs = await logsCollection
-                .find(query)
-                .sort({ _id: 1 })
-                .limit(50)
-                .toArray();
-            
-            if (newLogs.length > 0) {
-                return res.json({
-                    success: true,
-                    data: newLogs,
-                    lastId: newLogs[newLogs.length - 1]._id,
-                    timestamp: new Date().toISOString()
-                });
-            }
-            
-            // Tunggu bentar sebelum cek lagi
-            await new Promise(resolve => setTimeout(resolve, pollInterval));
-        }
+        const newLogs = await logsCollection
+            .find(query)
+            .sort({ _id: 1 })
+            .limit(10)
+            .toArray();
         
-        // Timeout
         res.json({
             success: true,
-            data: [],
-            timeout: true,
-            timestamp: new Date().toISOString()
+            data: newLogs,
+            lastId: newLogs.length > 0 ? newLogs[newLogs.length - 1]._id : lastId
         });
         
     } catch (error) {
@@ -222,29 +200,19 @@ app.get('/api/poll', async (req, res) => {
 });
 
 // ========== START SERVER ==========
-async function startServer() {
-    // Connect ke MongoDB dulu
-    const connected = await connectToMongoDB();
-    
-    if (!connected) {
-        console.log('⚠️ Starting server without MongoDB connection...');
-        console.log('⚠️ Polling endpoint will return errors until DB connects');
-    }
+async function start() {
+    // Coba connect ke database
+    await connectDB();
     
     app.listen(PORT, () => {
-        console.log(`🚀 Server running on port ${PORT}`);
-        console.log(`📡 MongoDB status: ${connected ? 'CONNECTED' : 'DISCONNECTED'}`);
-        console.log(`📍 Health check: http://localhost:${PORT}/api/health`);
+        console.log(`✅ Server running on port ${PORT}`);
+        console.log(`📍 Test endpoints:`);
+        console.log(`   GET  /api/health`);
+        console.log(`   GET  /api/test`);
+        console.log(`   POST /api/console (need API Key)`);
+        console.log(`   GET  /api/logs`);
+        console.log(`   GET  /api/poll`);
     });
 }
 
-startServer();
-
-// Handle graceful shutdown
-process.on('SIGINT', async () => {
-    await client.close();
-    console.log('👋 MongoDB connection closed');
-    process.exit(0);
-});
-
-module.exports = app;
+start();
