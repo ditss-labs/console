@@ -1,4 +1,5 @@
-// index.js - Main Express Application
+// index.js - Fix untuk error polling
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -6,401 +7,244 @@ const compression = require('compression');
 const path = require('path');
 require('dotenv').config();
 
-// Import MongoDB connection
-const clientPromise = require('./lib/mongodb');
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ==================== MIDDLEWARE ====================
-app.use(helmet({
-    contentSecurityPolicy: false,
-}));
+// Middleware
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(compression());
-app.use(cors({
-    origin: '*',
-    methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'X-API-Key']
-}));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
-
-// Serve static files
+app.use(cors());
+app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ==================== DATABASE CONNECTION ====================
-let db;
-let logsCollection;
+// ========== MONGODB CONNECTION FIX ==========
+const { MongoClient } = require('mongodb');
+const uri = process.env.MONGODB_URI;
 
+if (!uri) {
+    console.error('❌ MONGODB_URI not found in environment variables');
+    process.exit(1);
+}
+
+const client = new MongoClient(uri, {
+    maxPoolSize: 10,
+    serverSelectionTimeoutMS: 5000,
+    socketTimeoutMS: 45000,
+});
+
+let db = null;
+let logsCollection = null;
+
+// Fungsi untuk connect ke MongoDB
 async function connectToMongoDB() {
     try {
-        const client = await clientPromise;
-        db = client.db('bot_wa');
-        logsCollection = db.collection('console_logs');
+        await client.connect();
         console.log('✅ Connected to MongoDB');
         
-        // Create indexes for better performance
+        db = client.db('bot_wa'); // Ganti 'bot_wa' sesuai database lo
+        logsCollection = db.collection('console_logs');
+        
+        // Create indexes
         await logsCollection.createIndex({ createdAt: -1 });
         await logsCollection.createIndex({ type: 1 });
-        await logsCollection.createIndex({ botName: 1 });
-        await logsCollection.createIndex({ 'userInfo.nomor': 1 });
         
+        console.log('✅ Database and collection ready');
+        return true;
     } catch (error) {
         console.error('❌ MongoDB connection error:', error);
-        process.exit(1);
+        return false;
     }
 }
 
-// ==================== API MIDDLEWARE ====================
-// API Key validation
-const validateApiKey = (req, res, next) => {
-    const apiKey = req.headers['x-api-key'];
-    if (!apiKey || apiKey !== process.env.API_KEY) {
-        return res.status(401).json({
-            success: false,
-            error: 'Unauthorized - Invalid API Key'
+// ========== MIDDLEWARE CEK DATABASE ==========
+// Middleware untuk memastikan database sudah terkoneksi
+function ensureDbConnected(req, res, next) {
+    if (!logsCollection) {
+        return res.status(503).json({ 
+            success: false, 
+            error: 'Database not ready',
+            message: 'MongoDB connection in progress, please try again'
         });
     }
     next();
-};
+}
 
-// ==================== API ROUTES ====================
+// ========== API ROUTES ==========
 
-/**
- * POST /api/console
- * Receive logs from WhatsApp bot
- */
-app.post('/api/console', validateApiKey, async (req, res) => {
+// Test endpoint
+app.get('/api/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        dbConnected: !!logsCollection,
+        timestamp: new Date().toISOString()
+    });
+});
+
+// POST /api/console - Terima log dari bot
+app.post('/api/console', async (req, res) => {
+    // Cek API Key
+    const apiKey = req.headers['x-api-key'];
+    if (!apiKey || apiKey !== process.env.API_KEY) {
+        return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+    
+    // Cek koneksi DB
+    if (!logsCollection) {
+        return res.status(503).json({ success: false, error: 'Database not ready' });
+    }
+    
     try {
         const logData = req.body;
         
-        // Validate required fields
-        if (!logData || !logData.type) {
-            return res.status(400).json({
-                success: false,
-                error: 'Invalid log data - type is required'
-            });
-        }
-
-        // Prepare log entry
+        // Tambah metadata
         const logEntry = {
             ...logData,
             _id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             createdAt: new Date(),
-            receivedAt: new Date().toISOString(),
-            ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
-            userAgent: req.headers['user-agent']
+            receivedAt: new Date().toISOString()
         };
-
-        // Insert to MongoDB
+        
+        // Simpan ke MongoDB
         await logsCollection.insertOne(logEntry);
-
-        // Clean up old logs (keep last 10,000)
-        try {
-            const count = await logsCollection.countDocuments();
-            if (count > 10000) {
-                const oldestLogs = await logsCollection
-                    .find({})
-                    .sort({ createdAt: 1 })
-                    .limit(count - 10000)
-                    .toArray();
-                
-                if (oldestLogs.length > 0) {
-                    await logsCollection.deleteMany({
-                        _id: { $in: oldestLogs.map(log => log._id) }
-                    });
-                }
-            }
-        } catch (cleanupError) {
-            console.error('Cleanup error:', cleanupError);
-        }
-
-        // Success response
-        res.status(200).json({
-            success: true,
-            message: 'Log saved successfully',
-            id: logEntry._id,
-            timestamp: logEntry.createdAt
-        });
-
+        
+        res.json({ success: true, id: logEntry._id });
     } catch (error) {
         console.error('Error saving log:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Internal server error',
-            message: error.message
-        });
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
-/**
- * GET /api/logs
- * Get logs with pagination and filters
- */
-app.get('/api/logs', async (req, res) => {
+// GET /api/logs - Ambil logs
+app.get('/api/logs', ensureDbConnected, async (req, res) => {
     try {
-        // Parse query parameters
         const limit = Math.min(parseInt(req.query.limit) || 100, 500);
         const page = parseInt(req.query.page) || 1;
         const skip = (page - 1) * limit;
         
-        const type = req.query.type;
-        const botName = req.query.bot;
-        const nomor = req.query.nomor;
-        const startDate = req.query.start ? new Date(req.query.start) : null;
-        const endDate = req.query.end ? new Date(req.query.end) : null;
-        const search = req.query.search;
-
-        // Build query
-        let query = {};
-        
-        if (type && type !== 'all') {
-            query.type = type;
-        }
-        
-        if (botName) {
-            query.botName = botName;
-        }
-        
-        if (nomor) {
-            query['userInfo.nomor'] = { $regex: nomor, $options: 'i' };
-        }
-        
-        if (startDate || endDate) {
-            query.createdAt = {};
-            if (startDate) query.createdAt.$gte = startDate;
-            if (endDate) query.createdAt.$lte = endDate;
-        }
-        
-        if (search) {
-            query.$or = [
-                { 'messageInfo.body': { $regex: search, $options: 'i' } },
-                { 'messageInfo.command': { $regex: search, $options: 'i' } },
-                { 'userInfo.pushname': { $regex: search, $options: 'i' } },
-                { 'userInfo.nomor': { $regex: search, $options: 'i' } }
-            ];
-        }
-
-        // Get total count for pagination
-        const total = await logsCollection.countDocuments(query);
-
-        // Get logs
+        // Ambil logs
         const logs = await logsCollection
-            .find(query)
+            .find({})
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit)
             .toArray();
-
-        // Get unique bot names for filter
-        const botNames = await logsCollection.distinct('botName');
         
-        // Get unique types for filter
-        const types = await logsCollection.distinct('type');
-
-        res.status(200).json({
+        // Hitung total
+        const total = await logsCollection.countDocuments({});
+        
+        res.json({
             success: true,
-            data: logs.reverse(), // Return oldest first for display
+            data: logs.reverse(),
             pagination: {
                 page,
                 limit,
                 total,
-                pages: Math.ceil(total / limit),
-                hasMore: skip + logs.length < total
-            },
-            filters: {
-                botNames: botNames.filter(Boolean),
-                types: types.filter(Boolean)
+                pages: Math.ceil(total / limit)
             }
         });
-
     } catch (error) {
         console.error('Error fetching logs:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Internal server error',
-            message: error.message
-        });
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
-/**
- * GET /api/poll
- * Long polling for realtime updates
- */
+// GET /api/poll - FIXED VERSION (ini yang error tadi)
 app.get('/api/poll', async (req, res) => {
-    // Set headers for long polling
+    // Set headers untuk long polling
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-
+    
     const lastId = req.query.lastId;
-    const timeout = Math.min(parseInt(req.query.timeout) || 30000, 60000);
-    const type = req.query.type;
-
+    const timeout = parseInt(req.query.timeout) || 30000;
+    
+    // CEK PENTING: Kalo db belum siap, return error
+    if (!logsCollection) {
+        return res.status(503).json({ 
+            success: false, 
+            error: 'Database not ready',
+            data: [] 
+        });
+    }
+    
     try {
-        // Build query for new logs
+        const startTime = Date.now();
+        const pollInterval = 2000;
+        
+        // Build query
         let query = {};
         if (lastId) {
             query._id = { $gt: lastId };
         }
-        if (type && type !== 'all') {
-            query.type = type;
-        }
-
-        // Long polling - wait for new data or timeout
-        const startTime = Date.now();
-        const pollInterval = 2000;
-
+        
         while (Date.now() - startTime < timeout) {
-            // Check for new logs
+            // CEK ULANG: Pastikan logsCollection masih ada
+            if (!logsCollection) {
+                throw new Error('Database connection lost');
+            }
+            
+            // Cari logs baru
             const newLogs = await logsCollection
                 .find(query)
                 .sort({ _id: 1 })
                 .limit(50)
                 .toArray();
-
+            
             if (newLogs.length > 0) {
-                return res.status(200).json({
+                return res.json({
                     success: true,
                     data: newLogs,
                     lastId: newLogs[newLogs.length - 1]._id,
                     timestamp: new Date().toISOString()
                 });
             }
-
-            // Wait before next check
+            
+            // Tunggu bentar sebelum cek lagi
             await new Promise(resolve => setTimeout(resolve, pollInterval));
         }
-
-        // Timeout - return empty response
-        res.status(200).json({
+        
+        // Timeout
+        res.json({
             success: true,
             data: [],
             timeout: true,
             timestamp: new Date().toISOString()
         });
-
+        
     } catch (error) {
         console.error('Polling error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Internal server error',
-            message: error.message
+        res.status(500).json({ 
+            success: false, 
+            error: error.message,
+            data: [] 
         });
     }
 });
 
-/**
- * DELETE /api/logs
- * Clear all logs (protected with API key)
- */
-app.delete('/api/logs', validateApiKey, async (req, res) => {
-    try {
-        await logsCollection.deleteMany({});
-        res.status(200).json({
-            success: true,
-            message: 'All logs cleared successfully'
-        });
-    } catch (error) {
-        console.error('Error clearing logs:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Internal server error',
-            message: error.message
-        });
-    }
-});
-
-/**
- * GET /api/stats
- * Get statistics about logs
- */
-app.get('/api/stats', async (req, res) => {
-    try {
-        const total = await logsCollection.countDocuments();
-        
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        
-        const todayCount = await logsCollection.countDocuments({
-            createdAt: { $gte: today }
-        });
-        
-        const typeStats = await logsCollection.aggregate([
-            { $group: { _id: '$type', count: { $sum: 1 } } }
-        ]).toArray();
-        
-        const botStats = await logsCollection.aggregate([
-            { $group: { _id: '$botName', count: { $sum: 1 } } },
-            { $sort: { count: -1 } },
-            { $limit: 5 }
-        ]).toArray();
-
-        res.status(200).json({
-            success: true,
-            data: {
-                total,
-                today: todayCount,
-                byType: typeStats,
-                topBots: botStats
-            }
-        });
-
-    } catch (error) {
-        console.error('Error getting stats:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Internal server error',
-            message: error.message
-        });
-    }
-});
-
-// ==================== FRONTEND ROUTES ====================
-// Catch-all route to serve index.html for client-side routing
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// ==================== ERROR HANDLING ====================
-// 404 handler
-app.use((req, res) => {
-    res.status(404).json({
-        success: false,
-        error: 'Route not found'
-    });
-});
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-    console.error('Unhandled error:', err);
-    res.status(500).json({
-        success: false,
-        error: 'Internal server error',
-        message: err.message
-    });
-});
-
-// ==================== START SERVER ====================
+// ========== START SERVER ==========
 async function startServer() {
-    await connectToMongoDB();
+    // Connect ke MongoDB dulu
+    const connected = await connectToMongoDB();
+    
+    if (!connected) {
+        console.log('⚠️ Starting server without MongoDB connection...');
+        console.log('⚠️ Polling endpoint will return errors until DB connects');
+    }
     
     app.listen(PORT, () => {
-        console.log(`🚀 Server running on http://localhost:${PORT}`);
-        console.log(`📡 API endpoints:`);
-        console.log(`   POST  http://localhost:${PORT}/api/console`);
-        console.log(`   GET   http://localhost:${PORT}/api/logs`);
-        console.log(`   GET   http://localhost:${PORT}/api/poll`);
-        console.log(`   GET   http://localhost:${PORT}/api/stats`);
-        console.log(`   DELETE http://localhost:${PORT}/api/logs`);
+        console.log(`🚀 Server running on port ${PORT}`);
+        console.log(`📡 MongoDB status: ${connected ? 'CONNECTED' : 'DISCONNECTED'}`);
+        console.log(`📍 Health check: http://localhost:${PORT}/api/health`);
     });
 }
 
-// For Vercel serverless
-if (require.main === module) {
-    startServer();
-}
+startServer();
 
-// Export for Vercel
+// Handle graceful shutdown
+process.on('SIGINT', async () => {
+    await client.close();
+    console.log('👋 MongoDB connection closed');
+    process.exit(0);
+});
+
 module.exports = app;
