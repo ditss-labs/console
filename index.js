@@ -84,7 +84,7 @@ app.get('/api/health', (req, res) => {
 app.post('/api/console', async (req, res) => {
     // Cek API Key
     const apiKey = req.headers['x-api-key'];
-    if (!apiKey || apiKey !== process.env.API_KEY) {
+    if (!apiKey || apiKey !== process.env.APIKEY) {
         return res.status(401).json({ success: false, error: 'Unauthorized' });
     }
     
