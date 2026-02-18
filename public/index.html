@@ -47,7 +47,7 @@
             border-radius: 4px;
         }
         
-        /* Glassmorphism with neon effect */
+        /* Glassmorphism dengan neon effect */
         .glass-terminal {
             background: rgba(10, 15, 30, 0.7);
             backdrop-filter: blur(12px);
@@ -85,17 +85,54 @@
                 0 0 20px rgba(0, 184, 255, 0.3);
         }
         
-        /* Log entry styling */
+        /* Log entry styling - BARU: newest first animation */
         .log-entry {
             border-left: 3px solid transparent;
-            transition: all 0.2s ease;
-            animation: slideIn 0.3s ease-out;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            animation: slideInDown 0.4s ease-out;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        /* Animasi untuk log baru */
+        @keyframes slideInDown {
+            from {
+                opacity: 0;
+                transform: translateY(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        /* Efek new log highlight */
+        .log-entry.new-log {
+            background: linear-gradient(90deg, rgba(0, 255, 157, 0.15), transparent);
+            border-left-color: var(--primary) !important;
+        }
+        
+        .log-entry.new-log::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, var(--primary), transparent);
+            animation: sweep 2s ease-out;
+        }
+        
+        @keyframes sweep {
+            from { transform: translateX(-100%); }
+            to { transform: translateX(100%); }
         }
         
         .log-entry:hover {
             border-left-color: var(--primary);
             background: rgba(0, 255, 157, 0.05);
             transform: translateX(4px);
+            box-shadow: 0 4px 20px rgba(0, 255, 157, 0.15);
         }
         
         .log-system {
@@ -148,6 +185,17 @@
             }
         }
         
+        /* Counter badge untuk log baru */
+        .new-log-counter {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #0a0f1e;
+            margin-left: 8px;
+        }
+        
         /* Console line styling */
         .console-line {
             font-family: 'JetBrains Mono', monospace;
@@ -188,6 +236,13 @@
             position: relative;
             overflow: hidden;
             border: 1px solid rgba(0, 255, 157, 0.1);
+            transition: all 0.3s ease;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--primary);
+            box-shadow: 0 8px 24px rgba(0, 255, 157, 0.15);
         }
         
         .stat-card::before {
@@ -281,10 +336,41 @@
             transition: transform 0.3s ease;
             z-index: 1000;
             padding: 20px;
+            border-radius: 20px 20px 0 0;
         }
         
         .mobile-sheet.show {
             transform: translateY(0);
+        }
+        
+        /* Button styles */
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0, 255, 157, 0.3);
+        }
+        
+        /* Filter active state */
+        .filter-active {
+            background: linear-gradient(135deg, var(--primary), var(--secondary)) !important;
+            color: #0a0f1e !important;
+            font-weight: 600;
+        }
+        
+        /* New log badge */
+        .new-badge {
+            background: var(--primary);
+            color: #0a0f1e;
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-left: 8px;
+            animation: pulse 1.5s infinite;
         }
     </style>
 </head>
@@ -305,7 +391,7 @@
                         <div class="w-16 h-16 bg-gradient-to-br from-emerald-500 to-cyan-500 rounded-2xl flex items-center justify-center">
                             <i class="fas fa-terminal text-3xl text-white"></i>
                         </div>
-                        <div class="absolute -top-1 -right-1 w-4 h-4">
+                        <div class="absolute -top-1 -right-1">
                             <span class="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping"></span>
                             <span class="relative inline-flex rounded-full h-4 w-4 bg-emerald-500"></span>
                         </div>
@@ -319,7 +405,7 @@
                         </div>
                         <p class="text-gray-400 flex items-center gap-2 text-sm">
                             <i class="fas fa-database text-emerald-400"></i>
-                            Real-time monitoring from <span class="font-mono text-emerald-400">https://console-bot.vercel.app/api/logs</span>
+                            Real-time monitoring | <span class="text-emerald-400 font-mono">Newest First ✓</span>
                         </p>
                     </div>
                 </div>
@@ -328,6 +414,10 @@
                     <div class="flex items-center gap-3 bg-black/30 px-4 py-2 rounded-xl">
                         <div class="live-dot"></div>
                         <span class="text-sm font-mono" id="lastUpdate">Last update: 0s ago</span>
+                    </div>
+                    <div class="flex items-center gap-2 bg-black/30 px-4 py-2 rounded-xl">
+                        <i class="fas fa-arrow-up text-emerald-400"></i>
+                        <span class="text-sm font-mono" id="newLogsCount">0 new</span>
                     </div>
                     <button onclick="refreshData()" class="px-5 py-2 glass-terminal hover:bg-white/5 rounded-xl transition flex items-center gap-2">
                         <i class="fas fa-sync-alt"></i>
@@ -393,20 +483,23 @@
         <div class="glass-card rounded-2xl p-4 mb-8">
             <div class="flex flex-wrap items-center justify-between gap-4">
                 <div class="flex flex-wrap gap-2">
-                    <button onclick="filterLogs('all')" class="filter-btn px-4 py-2 rounded-xl bg-emerald-500 text-white transition" data-filter="all">
+                    <button onclick="filterLogs('all')" class="filter-btn px-4 py-2 rounded-xl bg-emerald-500 text-white transition filter-active" data-filter="all">
                         <i class="fas fa-list mr-2"></i>All Logs
+                        <span class="ml-2 px-2 py-0.5 bg-white/20 rounded-full text-xs" id="filterAllCount">0</span>
                     </button>
                     <button onclick="filterLogs('command')" class="filter-btn px-4 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 transition" data-filter="command">
                         <i class="fas fa-terminal mr-2"></i>Commands
+                        <span class="ml-2 px-2 py-0.5 bg-white/10 rounded-full text-xs" id="filterCommandCount">0</span>
                     </button>
                     <button onclick="filterLogs('system')" class="filter-btn px-4 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 transition" data-filter="system">
                         <i class="fas fa-server mr-2"></i>System
+                        <span class="ml-2 px-2 py-0.5 bg-white/10 rounded-full text-xs" id="filterSystemCount">0</span>
                     </button>
                 </div>
                 
                 <div class="flex items-center gap-2">
                     <i class="fas fa-search text-gray-400"></i>
-                    <input type="text" id="searchInput" placeholder="Search logs..." class="bg-gray-800/50 border border-gray-700 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-emerald-500">
+                    <input type="text" id="searchInput" placeholder="Search logs..." class="bg-gray-800/50 border border-gray-700 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-emerald-500 w-64">
                 </div>
             </div>
         </div>
@@ -441,6 +534,9 @@
         let refreshInterval;
         let currentFilter = 'all';
         let searchTerm = '';
+        let previousLogsCount = 0;
+        let newLogsCounter = 0;
+        let lastFetchTime = Date.now();
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
@@ -455,8 +551,29 @@
                 const data = await response.json();
                 
                 if (data.success) {
-                    logs = data.data;
-                    filteredLogs = logs;
+                    // Hitung logs baru
+                    if (logs.length > 0) {
+                        const oldIds = new Set(logs.map(l => l._id));
+                        const newLogs = data.data.filter(l => !oldIds.has(l._id));
+                        newLogsCounter = newLogs.length;
+                        
+                        // Update counter display
+                        document.getElementById('newLogsCount').innerHTML = `<i class="fas fa-arrow-up text-emerald-400"></i> ${newLogsCounter} new`;
+                        
+                        // Show notification if there are new logs
+                        if (newLogsCounter > 0) {
+                            showToast(`${newLogsCounter} new log${newLogsCounter > 1 ? 's' : ''} received!`);
+                        }
+                    }
+                    
+                    // SIMPAN LOGS DENGAN URUTAN TERBARU DI ATAS
+                    logs = data.data.sort((a, b) => {
+                        const dateA = new Date(a.createdAt || a.timestamp);
+                        const dateB = new Date(b.createdAt || b.timestamp);
+                        return dateB - dateA; // DESCENDING (newest first)
+                    });
+                    
+                    previousLogsCount = logs.length;
                     updateUI();
                 }
             } catch (error) {
@@ -484,8 +601,7 @@
                 // Search
                 if (searchTerm) {
                     const searchLower = searchTerm.toLowerCase();
-                    const logString = JSON.stringify(log).toLowerCase();
-                    return logString.includes(searchLower);
+                    return JSON.stringify(log).toLowerCase().includes(searchLower);
                 }
                 
                 return true;
@@ -500,13 +616,15 @@
             document.getElementById('todayLogs').textContent = logs.filter(log => 
                 new Date(log.createdAt || log.timestamp).toDateString() === today
             ).length;
-            document.getElementById('commandCount').textContent = logs.filter(log => log.type === 'command').length;
+            
+            const commandLogs = logs.filter(log => log.type === 'command');
+            document.getElementById('commandCount').textContent = commandLogs.length;
             
             const uniqueUsers = new Set();
             const operators = new Set();
             
-            logs.forEach(log => {
-                if (log.type === 'command' && log.userInfo) {
+            commandLogs.forEach(log => {
+                if (log.userInfo) {
                     uniqueUsers.add(log.userInfo.id);
                     if (log.userInfo.operator) {
                         operators.add(log.userInfo.operator);
@@ -516,6 +634,11 @@
             
             document.getElementById('uniqueUsers').textContent = uniqueUsers.size;
             document.getElementById('operatorCount').textContent = operators.size;
+            
+            // Update filter counts
+            document.getElementById('filterAllCount').textContent = logs.length;
+            document.getElementById('filterCommandCount').textContent = commandLogs.length;
+            document.getElementById('filterSystemCount').textContent = logs.filter(log => log.type === 'system').length;
         }
 
         // Render logs
@@ -533,98 +656,135 @@
                 return;
             }
 
-            container.innerHTML = filteredLogs.map((log, index) => `
-                <div class="glass-card rounded-2xl p-6 log-entry ${log.type === 'system' ? 'log-system' : 'log-command'} fade-in" style="animation-delay: ${index * 0.05}s" onclick="showLogDetails(${index})">
-                    <div class="flex flex-col lg:flex-row justify-between gap-4 mb-4">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-xl ${log.type === 'system' ? 'bg-purple-500/20' : 'bg-emerald-500/20'} flex items-center justify-center">
-                                <i class="fas ${log.type === 'system' ? 'fa-server' : 'fa-terminal'} ${log.type === 'system' ? 'text-purple-400' : 'text-emerald-400'}"></i>
+            container.innerHTML = filteredLogs.map((log, index) => {
+                // Cek apakah ini log baru
+                const isNewLog = index < newLogsCounter;
+                const logDate = new Date(log.createdAt || log.timestamp);
+                
+                return `
+                    <div class="glass-card rounded-2xl p-6 log-entry ${log.type === 'system' ? 'log-system' : 'log-command'} ${isNewLog ? 'new-log' : ''} fade-in" 
+                         onclick="showLogDetails(${index})"
+                         data-id="${log._id}">
+                        
+                        <!-- New Log Badge -->
+                        ${isNewLog ? '<div class="absolute top-4 right-4 new-badge">NEW</div>' : ''}
+                        
+                        <div class="flex flex-col lg:flex-row justify-between gap-4 mb-4">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-xl ${log.type === 'system' ? 'bg-purple-500/20' : 'bg-emerald-500/20'} flex items-center justify-center">
+                                    <i class="fas ${log.type === 'system' ? 'fa-server' : 'fa-terminal'} ${log.type === 'system' ? 'text-purple-400' : 'text-emerald-400'}"></i>
+                                </div>
+                                <div>
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                        <span class="font-mono text-sm ${log.type === 'system' ? 'text-purple-400' : 'text-emerald-400'}">${log._id.substring(0, 8)}...</span>
+                                        <span class="px-2 py-0.5 rounded-full text-xs ${log.type === 'system' ? 'bg-purple-500/20 text-purple-300' : 'bg-emerald-500/20 text-emerald-300'} border ${log.type === 'system' ? 'border-purple-500/30' : 'border-emerald-500/30'}">
+                                            ${log.type}
+                                        </span>
+                                        ${log.botName ? `
+                                            <span class="px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded-full text-xs border border-blue-500/30">
+                                                <i class="fas fa-robot mr-1"></i>${log.botName}
+                                            </span>
+                                        ` : ''}
+                                    </div>
+                                    <div class="text-xs text-gray-400 mt-1 flex items-center gap-2">
+                                        <i class="far fa-clock mr-1"></i>${logDate.toLocaleString()}
+                                        <span class="text-emerald-400">${getTimeAgo(logDate)}</span>
+                                    </div>
+                                </div>
                             </div>
-                            <div>
+                            
+                            ${log.type === 'command' && log.userInfo ? `
                                 <div class="flex items-center gap-2 flex-wrap">
-                                    <span class="font-mono text-sm ${log.type === 'system' ? 'text-purple-400' : 'text-emerald-400'}">${log._id.substring(0, 8)}...</span>
-                                    <span class="px-2 py-0.5 rounded-full text-xs ${log.type === 'system' ? 'bg-purple-500/20 text-purple-300' : 'bg-emerald-500/20 text-emerald-300'} border ${log.type === 'system' ? 'border-purple-500/30' : 'border-emerald-500/30'}">
-                                        ${log.type}
-                                    </span>
-                                    ${log.botName ? `
-                                        <span class="px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded-full text-xs border border-blue-500/30">
-                                            <i class="fas fa-robot mr-1"></i>${log.botName}
+                                    <span class="badge-operator">${log.userInfo.operator || 'Unknown'}</span>
+                                    <span class="badge-device">${log.userInfo.device || 'unknown'}</span>
+                                    ${log.messageInfo ? `
+                                        <span class="px-2 py-0.5 bg-amber-500/20 text-amber-300 rounded-full text-xs border border-amber-500/30">
+                                            <i class="fas fa-hashtag mr-1"></i>${log.messageInfo.command}
                                         </span>
                                     ` : ''}
                                 </div>
-                                <div class="text-xs text-gray-400 mt-1">
-                                    <i class="far fa-clock mr-1"></i>${new Date(log.createdAt || log.timestamp).toLocaleString()}
-                                </div>
-                            </div>
+                            ` : ''}
                         </div>
-                        
+
+                        <div class="mb-4">
+                            ${log.type === 'system' ? `
+                                <div class="flex items-center gap-2 text-sm">
+                                    <i class="fas fa-info-circle text-gray-400"></i>
+                                    <span class="command-highlight">${log.message}</span>
+                                </div>
+                            ` : log.type === 'command' && log.consoleLines ? `
+                                <div class="flex items-center gap-2 mb-3">
+                                    <i class="fas fa-terminal text-emerald-400"></i>
+                                    <span class="command-highlight">${log.messageInfo?.command || 'Unknown'} ${log.messageInfo?.args?.join(' ') || ''}</span>
+                                </div>
+                                <div class="console-container">
+                                    ${log.consoleLines.slice(0, 3).map(line => `
+                                        <div class="console-line">${line}</div>
+                                    `).join('')}
+                                    ${log.consoleLines.length > 3 ? `
+                                        <div class="text-xs text-gray-500 mt-2">...and ${log.consoleLines.length - 3} more lines</div>
+                                    ` : ''}
+                                </div>
+                            ` : ''}
+                        </div>
+
                         ${log.type === 'command' && log.userInfo ? `
-                            <div class="flex items-center gap-2 flex-wrap">
-                                <span class="badge-operator">${log.userInfo.operator || 'Unknown'}</span>
-                                <span class="badge-device">${log.userInfo.device || 'unknown'}</span>
-                                ${log.messageInfo ? `
-                                    <span class="px-2 py-0.5 bg-amber-500/20 text-amber-300 rounded-full text-xs border border-amber-500/30">
-                                        <i class="fas fa-hashtag mr-1"></i>${log.messageInfo.command}
-                                    </span>
+                            <div class="flex flex-wrap gap-4 text-xs text-gray-400 border-t border-gray-800/50 pt-4 mt-2">
+                                <div class="flex items-center gap-2">
+                                    <i class="fas fa-user text-gray-500"></i>
+                                    <span>${log.userInfo.pushname || 'Unknown'}</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <i class="fas fa-phone text-gray-500"></i>
+                                    <span class="font-mono">${log.userInfo.nomor?.split('@')[0] || 'Unknown'}</span>
+                                </div>
+                                ${log.chatInfo?.id?.includes('g.us') ? `
+                                    <div class="flex items-center gap-2">
+                                        <i class="fas fa-users text-gray-500"></i>
+                                        <span>Group Chat</span>
+                                    </div>
+                                ` : ''}
+                                ${log.duration ? `
+                                    <div class="flex items-center gap-2">
+                                        <i class="fas fa-hourglass-half text-gray-500"></i>
+                                        <span>${log.duration}</span>
+                                    </div>
                                 ` : ''}
                             </div>
                         ` : ''}
                     </div>
+                `;
+            }).join('');
+            
+            // Reset new logs counter setelah render
+            if (newLogsCounter > 0) {
+                setTimeout(() => {
+                    newLogsCounter = 0;
+                    document.getElementById('newLogsCount').innerHTML = '<i class="fas fa-arrow-up text-emerald-400"></i> 0 new';
+                }, 3000);
+            }
+        }
 
-                    <div class="mb-4">
-                        ${log.type === 'system' ? `
-                            <div class="flex items-center gap-2 text-sm">
-                                <i class="fas fa-info-circle text-gray-400"></i>
-                                <span class="command-highlight">${log.message}</span>
-                            </div>
-                        ` : log.type === 'command' && log.consoleLines ? `
-                            <div class="flex items-center gap-2 mb-3">
-                                <i class="fas fa-terminal text-emerald-400"></i>
-                                <span class="command-highlight">${log.messageInfo?.command || 'Unknown'} ${log.messageInfo?.args?.join(' ') || ''}</span>
-                            </div>
-                            <div class="console-container">
-                                ${log.consoleLines.slice(0, 5).map(line => `
-                                    <div class="console-line">${line}</div>
-                                `).join('')}
-                                ${log.consoleLines.length > 5 ? `
-                                    <div class="text-xs text-gray-500 mt-2">...and ${log.consoleLines.length - 5} more lines</div>
-                                ` : ''}
-                            </div>
-                        ` : ''}
-                    </div>
-
-                    ${log.type === 'command' && log.userInfo ? `
-                        <div class="flex flex-wrap gap-4 text-xs text-gray-400 border-t border-gray-800/50 pt-4 mt-2">
-                            <div class="flex items-center gap-2">
-                                <i class="fas fa-user text-gray-500"></i>
-                                <span>${log.userInfo.pushname || 'Unknown'}</span>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <i class="fas fa-phone text-gray-500"></i>
-                                <span class="font-mono">${log.userInfo.nomor?.split('@')[0] || 'Unknown'}</span>
-                            </div>
-                            ${log.chatInfo?.id?.includes('g.us') ? `
-                                <div class="flex items-center gap-2">
-                                    <i class="fas fa-users text-gray-500"></i>
-                                    <span>Group Chat</span>
-                                </div>
-                            ` : ''}
-                            ${log.duration ? `
-                                <div class="flex items-center gap-2">
-                                    <i class="fas fa-hourglass-half text-gray-500"></i>
-                                    <span>${log.duration}</span>
-                                </div>
-                            ` : ''}
-                        </div>
-                    ` : ''}
-
-                    <div class="mt-3 text-right">
-                        <span class="text-xs text-gray-500 cursor-pointer hover:text-emerald-400 transition" onclick="event.stopPropagation(); toggleDetails(${index})">
-                            <i class="fas fa-chevron-down mr-1"></i>Click for details
-                        </span>
-                    </div>
-                </div>
-            `).join('');
+        // Helper function untuk format waktu relatif
+        function getTimeAgo(date) {
+            const seconds = Math.floor((new Date() - date) / 1000);
+            
+            let interval = Math.floor(seconds / 31536000);
+            if (interval >= 1) return interval + 'y ago';
+            
+            interval = Math.floor(seconds / 2592000);
+            if (interval >= 1) return interval + 'mo ago';
+            
+            interval = Math.floor(seconds / 86400);
+            if (interval >= 1) return interval + 'd ago';
+            
+            interval = Math.floor(seconds / 3600);
+            if (interval >= 1) return interval + 'h ago';
+            
+            interval = Math.floor(seconds / 60);
+            if (interval >= 1) return interval + 'm ago';
+            
+            return 'just now';
         }
 
         // Show detailed log view
@@ -637,14 +797,27 @@
                 const content = document.getElementById('sheetContent');
                 
                 content.innerHTML = `
-                    <pre class="bg-black/50 p-4 rounded-xl overflow-x-auto text-xs font-mono">
-                        ${JSON.stringify(log, null, 2)}
-                    </pre>
+                    <div class="space-y-4">
+                        <div class="bg-black/50 p-4 rounded-xl">
+                            <h4 class="text-xs text-gray-400 mb-2">Raw JSON</h4>
+                            <pre class="text-xs font-mono overflow-x-auto whitespace-pre-wrap">
+                                ${JSON.stringify(log, null, 2)}
+                            </pre>
+                        </div>
+                        ${log.type === 'command' && log.consoleLines ? `
+                            <div class="bg-black/50 p-4 rounded-xl">
+                                <h4 class="text-xs text-gray-400 mb-2">Full Console Output</h4>
+                                <div class="font-mono text-xs space-y-1">
+                                    ${log.consoleLines.map(line => `<div>> ${line}</div>`).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
                 `;
                 
                 sheet.classList.add('show');
             } else {
-                // Desktop modal or expand
+                // Desktop modal
                 alert(JSON.stringify(log, null, 2));
             }
         }
@@ -653,23 +826,19 @@
             document.getElementById('mobileSheet').classList.remove('show');
         }
 
-        function toggleDetails(index) {
-            const log = filteredLogs[index];
-            // Could implement expand/collapse here
-        }
-
         // Filter logs
         function filterLogs(type) {
             currentFilter = type;
             
             // Update button styles
             document.querySelectorAll('.filter-btn').forEach(btn => {
-                if (btn.dataset.filter === type) {
-                    btn.className = 'filter-btn px-4 py-2 rounded-xl bg-emerald-500 text-white transition';
-                } else {
-                    btn.className = 'filter-btn px-4 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 transition';
-                }
+                btn.classList.remove('filter-active', 'bg-emerald-500', 'text-white');
+                btn.classList.add('bg-gray-800');
             });
+            
+            const activeBtn = document.querySelector(`[data-filter="${type}"]`);
+            activeBtn.classList.remove('bg-gray-800');
+            activeBtn.classList.add('filter-active', 'bg-emerald-500', 'text-white');
             
             applyFilters();
             renderLogs();
@@ -700,9 +869,11 @@
                 btn.innerHTML = '<i class="fas fa-play"></i><span>Auto (30s)</span>';
                 btn.className = 'px-5 py-2 bg-gradient-to-r from-emerald-500 to-cyan-500 text-white rounded-xl hover:shadow-lg hover:shadow-emerald-500/20 transition flex items-center gap-2';
                 startAutoRefresh();
+                showToast('Auto refresh enabled');
             } else {
                 btn.innerHTML = '<i class="fas fa-pause"></i><span>Paused</span>';
                 btn.className = 'px-5 py-2 bg-gray-700 text-white rounded-xl transition flex items-center gap-2';
+                showToast('Auto refresh paused', 'warning');
             }
         }
 
@@ -713,21 +884,25 @@
 
         // Update last update time
         function updateLastUpdateTime() {
+            lastFetchTime = Date.now();
             document.getElementById('lastUpdate').textContent = 'Last update: just now';
             
-            let seconds = 0;
             setInterval(() => {
-                seconds++;
+                const seconds = Math.floor((Date.now() - lastFetchTime) / 1000);
                 document.getElementById('lastUpdate').textContent = `Last update: ${seconds}s ago`;
             }, 1000);
         }
 
-        // Toast notification
+        // Toast notification system
         function showToast(message, type = 'success') {
             const toast = document.createElement('div');
-            toast.className = `fixed bottom-6 right-6 px-6 py-4 rounded-xl shadow-2xl text-white font-medium flex items-center gap-3 z-50 animate-fade-in ${type === 'error' ? 'bg-red-500' : 'bg-emerald-500'}`;
+            toast.className = `fixed bottom-6 right-6 px-6 py-4 rounded-xl shadow-2xl text-white font-medium flex items-center gap-3 z-50 animate-fade-in ${
+                type === 'error' ? 'bg-red-500' : 
+                type === 'warning' ? 'bg-yellow-500' : 
+                'bg-gradient-to-r from-emerald-500 to-cyan-500'
+            }`;
             toast.innerHTML = `
-                <i class="fas ${type === 'error' ? 'fa-exclamation-circle' : 'fa-check-circle'}"></i>
+                <i class="fas ${type === 'error' ? 'fa-exclamation-circle' : type === 'warning' ? 'fa-exclamation-triangle' : 'fa-check-circle'}"></i>
                 <span>${message}</span>
             `;
             document.body.appendChild(toast);
@@ -738,7 +913,7 @@
             }, 3000);
         }
 
-        // Add CSS for animations
+        // Add CSS for toast animations
         const style = document.createElement('style');
         style.textContent = `
             @keyframes fadeIn {
@@ -754,6 +929,14 @@
             }
         `;
         document.head.appendChild(style);
+
+        // Handle click outside mobile sheet
+        document.addEventListener('click', (e) => {
+            const sheet = document.getElementById('mobileSheet');
+            if (sheet.classList.contains('show') && !sheet.contains(e.target) && !e.target.closest('.log-entry')) {
+                hideMobileSheet();
+            }
+        });
     </script>
 </body>
 </html>
